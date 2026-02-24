@@ -55,20 +55,24 @@
         const leagueUrl = getMFLApiUrl(server, year, `TYPE=league&L=${league}`);
         const leagueData = await fetch(leagueUrl).then(r=>r.json());
         logDebug(`[${new Date().toLocaleTimeString()}] Loaded league: ${leagueData.league.name}`, "info");
+        // Robust teams extraction
         const teamMap = {};
-        (leagueData.league.teams.team || []).forEach(team => { teamMap[team.id] = team.franchise_name || team.name || team.id; });
-
+        let teamsRaw = leagueData.league.teams;
+        let teamsArr = [];
+        if (teamsRaw && Array.isArray(teamsRaw.team)) {
+          teamsArr = teamsRaw.team;
+        } else if (teamsRaw && teamsRaw.team) {
+          teamsArr = [teamsRaw.team];
+        }
+        teamsArr.forEach(team => { teamMap[team.id] = team.franchise_name || team.name || team.id; });
         // Fetch lineups
         const lineupUrl = getMFLApiUrl(server, year, `TYPE=lineups&L=${league}&W=${week}`);
         const lineupData = await fetch(lineupUrl).then(r=>r.json());
         logDebug(`[${new Date().toLocaleTimeString()}] Loaded lineups for week ${week}`, "info");
         const teams = lineupData.lineups.team || [];
-        // Fetch starting lineup requirements
         let req = (leagueData.league.starters || leagueData.league.lineup_requirements);
         let minStarters = 7; // fallback
         if (req && req.count) minStarters = Number(req.count);
-
-        // Build report table
         let html = `<table><tr><th>Team</th><th>Starter count</th><th>Status</th></tr>`;
         for (const t of teams) {
           const starters = (Array.isArray(t.starters?.starter) ? t.starters.starter : []);
@@ -82,13 +86,11 @@
         }
         html += `</table>`;
         reportDiv.innerHTML = html;
-
       } catch (err) {
         logDebug(`[${new Date().toLocaleTimeString()}] Error: ${err}`, "error");
         reportDiv.innerHTML = "<b>Failed to load data</b>";
       }
     };
-    // Load weeks in dropdown
     let weekSel = document.getElementById("weekSelect");
     for (let i=1;i<=17;i++) {
       let o=document.createElement("option"); o.value=i; o.text=`Week ${i}`; weekSel.appendChild(o);
