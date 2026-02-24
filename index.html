@@ -1,7 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MFL Lineup Validator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f4f4f8; color: #222; padding: 16px; }
+    h1 { font-size: 1.6rem; margin-bottom: 16px; color: #1a237e; }
+    h2 { font-size: 1.1rem; margin-bottom: 8px; color: #283593; }
+
+    /* Settings panel */
+    #settings {
+      background: #fff;
+      border: 1px solid #c5cae9;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    #settings label { display: flex; flex-direction: column; font-size: 0.85rem; gap: 4px; }
+    #settings input[type="text"],
+    #settings input[type="number"] {
+      padding: 6px 8px;
+      border: 1px solid #9fa8da;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      width: 200px;
+    }
+    #settings input#leagueId { width: 140px; }
+    #settings input#year,
+    #settings input#week { width: 80px; }
+    #validateBtn {
+      padding: 8px 20px;
+      background: #3949ab;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    #validateBtn:hover { background: #283593; }
+    #validateBtn:disabled { background: #9fa8da; cursor: not-allowed; }
+
+    /* Status bar */
+    #status {
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+      min-height: 1.4em;
+      color: #555;
+    }
+    #status.error { color: #c62828; font-weight: bold; }
+
+    /* Results table */
+    #resultsContainer { margin-bottom: 16px; overflow-x: auto; }
+    #resultsTable {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      font-size: 0.85rem;
+    }
+    #resultsTable th {
+      background: #3949ab;
+      color: #fff;
+      padding: 8px 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    #resultsTable td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #e8eaf6;
+      vertical-align: top;
+    }
+    #resultsTable tr:nth-child(even) td { background: #f5f5ff; }
+    #resultsTable tr:hover td { background: #e8eaf6; }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 0.78rem;
+      font-weight: bold;
+    }
+    .badge-ok { background: #c8e6c9; color: #1b5e20; }
+    .badge-warn { background: #fff9c4; color: #f57f17; }
+    .badge-err { background: #ffcdd2; color: #b71c1c; }
+
+    /* Debug panel */
+    #debugPanel {
+      background: #1a1a2e;
+      color: #a5d6a7;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 0.78rem;
+    }
+    #debugHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    #debugHeader h2 { color: #81d4fa; margin: 0; }
+    .debug-controls { display: flex; gap: 8px; }
+    .debug-controls button {
+      padding: 3px 10px;
+      border: 1px solid #4fc3f7;
+      background: transparent;
+      color: #4fc3f7;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.78rem;
+    }
+    .debug-controls button:hover { background: #162447; }
+    #debugOutput {
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: monospace;
+      line-height: 1.5;
+    }
+    #debugOutput:empty::after { content: '(no output yet)'; color: #546e7a; }
+  </style>
+</head>
+<body>
+
+<h1>MFL Lineup Validator</h1>
+
+<!-- Settings panel -->
+<div id="settings">
+  <label>League ID
+    <input type="text" id="leagueId" placeholder="e.g. 12345" />
+  </label>
+  <label>Year
+    <input type="number" id="year" value="2025" min="2000" max="2099" />
+  </label>
+  <label>Week
+    <input type="number" id="week" value="1" min="1" max="25" />
+  </label>
+  <label>CORS Proxy URL
+    <input type="text" id="proxyUrl" placeholder="https://your-worker.workers.dev/" />
+  </label>
+  <button id="validateBtn">Validate Lineups</button>
+</div>
+
+<!-- Status bar -->
+<div id="status"></div>
+
+<!-- Results table -->
+<div id="resultsContainer">
+  <table id="resultsTable">
+    <thead>
+      <tr>
+        <th>Team</th>
+        <th>Franchise ID</th>
+        <th>Players Starting</th>
+        <th>Slots Filled</th>
+        <th>Status</th>
+        <th>Issues</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody">
+      <tr><td colspan="6" style="color:#aaa;text-align:center;padding:20px;">
+        Enter your league details above and click <strong>Validate Lineups</strong>.
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Debug panel -->
+<div id="debugPanel">
+  <div id="debugHeader">
+    <h2>Debug Log</h2>
+    <div class="debug-controls">
+      <button id="toggleDebug">Hide</button>
+      <button id="clearDebug">Clear</button>
+    </div>
+  </div>
+  <pre id="debugOutput"></pre>
+</div>
+
 <script>
-  console.log('Teams List:', teamsList);
-  teamsList.forEach(team => { 
-    console.log('Processing Team:', team);
+(function () {
+  'use strict';
+
+  // ── Debug helpers ────────────────────────────────────────────────────────────
+  const debugEl = document.getElementById('debugOutput');
+  function dbg(msg, data) {
+    const ts = new Date().toISOString().substring(11, 23);
+    let line = '[' + ts + '] ' + msg;
+    if (data !== undefined) {
+      try { line += '\n' + JSON.stringify(data, null, 2); }
+      catch (e) { line += '\n[unstringifiable: ' + e.message + ']'; }
+    }
+    console.log(msg, data !== undefined ? data : '');
+    debugEl.textContent += line + '\n\n';
+    debugEl.scrollTop = debugEl.scrollHeight;
+  }
+
+  // Debug panel toggle / clear
+  document.getElementById('toggleDebug').addEventListener('click', function () {
+    const hidden = debugEl.style.display === 'none';
+    debugEl.style.display = hidden ? '' : 'none';
+    this.textContent = hidden ? 'Hide' : 'Show';
   });
-  // Existing code to draw the table goes here
+  document.getElementById('clearDebug').addEventListener('click', function () {
+    debugEl.textContent = '';
+  });
+
+  // ── Status helpers ───────────────────────────────────────────────────────────
+  const statusEl = document.getElementById('status');
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'error' : '';
+  }
+
+  // ── Set default proxy URL to current page origin ─────────────────────────────
+  const proxyInput = document.getElementById('proxyUrl');
+  if (!proxyInput.value) {
+    proxyInput.value = window.location.origin + '/';
+  }
+
+  // ── Normalise MFL array-or-object responses ──────────────────────────────────
+  // The MFL API returns a single item as an object and multiple items as an array.
+  // This helper always returns an array (empty array for null/undefined).
+  function toArray(val) {
+    if (!val) return [];
+    return Array.isArray(val) ? val : [val];
+  }
+
+  // ── Fetch through CORS proxy ─────────────────────────────────────────────────
+  async function proxyFetch(proxyBase, mflUrl) {
+    const base = proxyBase.endsWith('/') ? proxyBase : proxyBase + '/';
+    const fullUrl = base + '?url=' + encodeURIComponent(mflUrl);
+    dbg('Fetching via proxy', fullUrl);
+    const resp = await fetch(fullUrl);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + mflUrl);
+    const text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error('Invalid JSON response: ' + text.substring(0, 200) + (text.length > 200 ? '…' : ''));
+    }
+  }
+
+  // ── Build results table ──────────────────────────────────────────────────────
+  function renderResults(rows) {
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:20px;">No data found.</td></tr>';
+      return;
+    }
+
+    rows.forEach(function (row) {
+      const tr = document.createElement('tr');
+
+      let badgeClass = 'badge-ok';
+      let statusText = 'OK';
+      if (row.issues.length) {
+        badgeClass = row.issues.some(i => i.severity === 'error') ? 'badge-err' : 'badge-warn';
+        statusText = row.issues.some(i => i.severity === 'error') ? 'Error' : 'Warning';
+      }
+
+      tr.innerHTML =
+        '<td>' + escHtml(row.teamName) + '</td>' +
+        '<td>' + escHtml(row.franchiseId) + '</td>' +
+        '<td>' + escHtml(String(row.playersStarting)) + '</td>' +
+        '<td>' + escHtml(String(row.slotsFilled)) + '</td>' +
+        '<td><span class="badge ' + badgeClass + '">' + statusText + '</span></td>' +
+        '<td>' + (row.issues.length
+          ? row.issues.map(i => escHtml(i.message)).join('<br>')
+          : '—') + '</td>';
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── Main validation logic ────────────────────────────────────────────────────
+  async function validateLineups() {
+    const leagueId = document.getElementById('leagueId').value.trim();
+    const year     = document.getElementById('year').value.trim();
+    const week     = document.getElementById('week').value.trim();
+    const proxyBase = document.getElementById('proxyUrl').value.trim();
+
+    if (!leagueId || !year || !week || !proxyBase) {
+      setStatus('Please fill in all settings fields.', true);
+      return;
+    }
+
+    const btn = document.getElementById('validateBtn');
+    btn.disabled = true;
+    setStatus('Fetching data…');
+    dbg('=== Validation started ===');
+    dbg('Settings', { leagueId, year, week, proxyBase });
+
+    try {
+      // ── Step 1: fetch league / franchise names ──────────────────────────────
+      const leagueUrl = 'https://api.myfantasyleague.com/' + year +
+        '/export?TYPE=league&L=' + leagueId + '&JSON=1';
+      setStatus('Fetching league data…');
+
+      const leagueData = await proxyFetch(proxyBase, leagueUrl);
+      dbg('Raw league API response', leagueData);
+
+      // Build a map of franchiseId -> name
+      const franchises = toArray(
+        leagueData &&
+        leagueData.league &&
+        leagueData.league.franchises &&
+        leagueData.league.franchises.franchise
+      );
+      dbg('Franchises array (after normalisation)', franchises);
+
+      const teamNameMap = {};
+      franchises.forEach(function (f) {
+        if (f && f.id) teamNameMap[f.id] = f.name || ('Team ' + f.id);
+      });
+      dbg('teamNameMap (id → name)', teamNameMap);
+
+      // ── Step 2: build teamsList ─────────────────────────────────────────────
+      const teamsList = franchises.map(function (f) {
+        return { id: f.id, name: teamNameMap[f.id] || ('Team ' + f.id) };
+      });
+      dbg('teamsList (full contents)', teamsList);
+
+      // Log each team as the problem statement requires
+      teamsList.forEach(function (team) {
+        dbg('Processing team in teamsList loop', team);
+      });
+
+      // ── Step 3: fetch live scoring (lineups) ────────────────────────────────
+      const scoringUrl = 'https://api.myfantasyleague.com/' + year +
+        '/export?TYPE=liveScoring&L=' + leagueId + '&W=' + week + '&JSON=1';
+      setStatus('Fetching lineup data…');
+
+      const scoringData = await proxyFetch(proxyBase, scoringUrl);
+      dbg('Raw liveScoring API response', scoringData);
+
+      const matchups = toArray(
+        scoringData &&
+        scoringData.liveScoring &&
+        scoringData.liveScoring.matchup
+      );
+      dbg('Matchups array (after normalisation)', matchups);
+
+      // Build a map of franchiseId -> slots array
+      const lineupMap = {};
+      matchups.forEach(function (matchup, mIdx) {
+        dbg('Processing matchup #' + mIdx, matchup);
+        const matchupFranchises = toArray(matchup && matchup.franchise);
+        matchupFranchises.forEach(function (mf) {
+          if (!mf || !mf.id) return;
+          const slots = toArray(mf.slot);
+          lineupMap[mf.id] = slots;
+          dbg('  Franchise ' + mf.id + ' slots', slots);
+        });
+      });
+
+      // ── Step 4: validate each team ─────────────────────────────────────────
+      setStatus('Validating…');
+      const results = [];
+
+      teamsList.forEach(function (team) {
+        dbg('Validating team', team);
+        const slots = lineupMap[team.id] || [];
+        const issues = [];
+
+        if (!lineupMap.hasOwnProperty(team.id)) {
+          issues.push({ severity: 'warn', message: 'No lineup data found for this team.' });
+        }
+
+        // Count players that are actively starting (not on bench)
+        const startingSlots = slots.filter(function (s) {
+          return s && s.status !== 'nonstarter';
+        });
+        const emptySlots = startingSlots.filter(function (s) {
+          return !s.id || s.id === '0' || s.id === '';
+        });
+
+        if (emptySlots.length > 0) {
+          issues.push({
+            severity: 'warn',
+            message: emptySlots.length + ' starting slot(s) are empty.'
+          });
+        }
+
+        const result = {
+          teamName: team.name,
+          franchiseId: team.id,
+          playersStarting: startingSlots.length - emptySlots.length,
+          slotsFilled: startingSlots.length,
+          issues: issues
+        };
+        dbg('Result for ' + team.name, result);
+        results.push(result);
+      });
+
+      dbg('=== Validation complete. Total teams processed: ' + results.length + ' ===');
+      renderResults(results);
+      setStatus('Done — ' + results.length + ' team(s) validated for Week ' + week + '.');
+
+    } catch (err) {
+      dbg('ERROR', { message: err.message, stack: err.stack });
+      setStatus('Error: ' + err.message, true);
+      document.getElementById('resultsBody').innerHTML =
+        '<tr><td colspan="6" style="color:#c62828;padding:12px;">An error occurred. See the Debug Log for details.</td></tr>';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('validateBtn').addEventListener('click', validateLineups);
+})();
 </script>
+</body>
+</html>
