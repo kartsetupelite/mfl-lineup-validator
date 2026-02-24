@@ -1,53 +1,196 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MFL Lineup Validator</title>
-    <link rel="stylesheet" href="style.css">
+<title>MFL Lineup Validator</title>
+<style>
+  body {
+    font-family: Georgia, serif;
+    background: #f5f5f5;
+    padding: 20px;
+  }
+  #lineupReportContainer {
+    text-align: center;
+    padding: 10px;
+  }
+  #debugPanel {
+    background: #000;
+    color: #0f0;
+    padding: 15px;
+    margin: 20px 0;
+    border-radius: 5px;
+    max-height: 250px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 11px;
+    text-align: left;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    border: 2px solid #0f0;
+  }
+  .debug-line {
+    margin: 2px 0;
+    padding: 1px 0;
+  }
+  .debug-error { color: #ff6b6b; }
+  .debug-success { color: #51cf66; }
+  .debug-info { color: #74c0fc; }
+  .debug-warn { color: #ffd43b; }
+  .settings-box {
+    background: #fff;
+    border: 2px solid #333;
+    padding: 15px;
+    border-radius: 5px;
+    margin: 20px 0;
+    text-align: left;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .settings-box label {
+    display: block;
+    margin: 10px 0;
+    font-weight: bold;
+  }
+  .settings-box input {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    box-sizing: border-box;
+  }
+  button {
+    padding: 10px 20px;
+    margin: 5px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  #clearDebugBtn {
+    background: #ff6b6b;
+    color: white;
+  }
+  select {
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #aaa;
+    font-size: 14px;
+    margin: 5px;
+  }
+  .lr-tile {
+    width: 170px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 12px;
+    background: #fff;
+    display: inline-block;
+    margin: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .lr-team-name {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lr-btn {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .lr-btn-invalid { background: #d9534f; }
+  .lr-btn-valid { background: #5cb85c; }
+  .lr-error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 4px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: left;
+  }
+  .lr-ok {
+    color: #28a745;
+    font-weight: bold;
+    font-size: 12px;
+  }
+  .lr-details {
+    display: none;
+    margin-top: 8px;
+  }
+  #lr-counter {
+    margin-bottom: 15px;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  #lr-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  .loading {
+    font-size: 16px;
+    color: #666;
+    padding: 20px;
+  }
+  .info-box {
+    background: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+    padding: 12px;
+    border-radius: 4px;
+    margin: 15px 0;
+  }
+</style>
 </head>
 <body>
-    <div id="debugPanel">
-        <h2>Debug Information</h2>
-        <pre id="debugInfo"></pre>
-    </div>
-    <div class="controls">
-        <select id="leagueSelect">
-            <option value="">Select League</option>
-            <!-- League Options Here -->
-        </select>
-        <select id="weekSelect">
-            <option value="">Select Week</option>
-            <!-- Week Options Here -->
-        </select>
-    </div>
-    <div class="tileLayout">
-        <div class="tile" id="player1"></div>
-        <div class="tile" id="player2"></div>
-        <!-- More Player Tiles Here -->
-    </div>
-    <script>
-        const apiUrl = 'https://mfl-lineup-validator.kartsetupelite.workers.dev/';
-
-        async function fetchData(endpoint) {
-            try {
-                const response = await fetch(apiUrl + endpoint);
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error('Error fetching data:', error);
-            }
-        }
-
-        // Example API call to get leagues
-        fetchData('leagues').then(leagues => {
-            // Update league options
-        });
-
-        // Example API call to get players
-        fetchData('players').then(players => {
-            // Update player tiles
-        });
-    </script>
+<div id="lineupReportContainer">
+  <h1>MFL Lineup Validator</h1>
+  <div class="info-box">
+    ✓ Validates MFL fantasy football lineups
+  </div>
+  <div class="settings-box">
+    <h3>Configuration</h3>
+    <label>League ID:
+      <input type="text" id="leagueInput" value="17011">
+    </label>
+    <label>Year:
+      <input type="text" id="yearInput" value="2026">
+    </label>
+    <label>Server:
+      <input type="text" id="serverInput" value="www48">
+    </label>
+    <button id="clearDebugBtn">Clear Debug Log</button>
+  </div>
+  <div id="debugPanel">
+    <div class="debug-line debug-info">Debug console ready...</div>
+  </div>
+  <div style="margin: 20px 0;">
+    <label>Week:
+      <select id="lr-weekSelector"></select>
+    </label>
+    <button id="runReportBtn" style="background: #2196F3; color: white; padding: 10px 30px; font-size: 16px;">Run Report</button>
+  </div>
+  <div id="lr-counter"></div>
+  <div id="lr-grid"></div>
+</div>
+<script>
+// Core proxy-enabled MFL API URL function
+def function LR_apiURL(params) {
+    var mflApiUrl = "https://" + LR_server + ".myfantasyleague.com/" + LR_year + "/export?" + params + "&JSON=1";
+    return "https://mfl-lineup-validator.kartsetupelite.workers.dev/?url=" + encodeURIComponent(mflApiUrl);
+}
+// ... Place the rest of your UI logic here, using LR_apiURL() for all fetch requests!
+</script>
 </body>
 </html>
