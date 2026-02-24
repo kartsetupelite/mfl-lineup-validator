@@ -1,1 +1,53 @@
-<!-- Updated content will be inserted here -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MFL Lineup Validator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="debugPanel">
+        <h2>Debug Information</h2>
+        <pre id="debugInfo"></pre>
+    </div>
+    <div class="controls">
+        <select id="leagueSelect">
+            <option value="">Select League</option>
+            <!-- League Options Here -->
+        </select>
+        <select id="weekSelect">
+            <option value="">Select Week</option>
+            <!-- Week Options Here -->
+        </select>
+    </div>
+    <div class="tileLayout">
+        <div class="tile" id="player1"></div>
+        <div class="tile" id="player2"></div>
+        <!-- More Player Tiles Here -->
+    </div>
+    <script>
+        const apiUrl = 'https://mfl-lineup-validator.kartsetupelite.workers.dev/';
+
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(apiUrl + endpoint);
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        // Example API call to get leagues
+        fetchData('leagues').then(leagues => {
+            // Update league options
+        });
+
+        // Example API call to get players
+        fetchData('players').then(players => {
+            // Update player tiles
+        });
+    </script>
+</body>
+</html>
