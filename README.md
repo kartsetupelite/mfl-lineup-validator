@@ -1,2 +1,3 @@
 # mfl-lineup-validator
-MFL Fantasy Football League Lineup Validator
+
+This repository contains a validation tool for MFL lineups.
