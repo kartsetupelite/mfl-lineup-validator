@@ -1,7 +1,254 @@
-<script>
-  console.log('Teams List:', teamsList);
-  teamsList.forEach(team => { 
-    console.log('Processing Team:', team);
-  });
-  // Existing code to draw the table goes here
-</script>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MFL Lineup Validator</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8f9fa; margin: 20px; }
+    #debugPanel { background: #222; color: #0f0; padding: 15px; border-radius: 5px; margin: 24px 0; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; }
+    .debug-controls { margin-bottom: 8px; }
+    .debug-controls button { padding: 4px 12px; margin-right: 6px; font-size: 12px; cursor: pointer; }
+    .settings-box { background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px; max-width: 650px; margin: 20px auto; }
+    label { display: block; margin-top: 12px; font-weight: bold; }
+    input, select { padding: 7px; margin-top: 4px; border-radius: 4px; border: 1px solid #ccc; width: 100%; box-sizing: border-box; }
+    button#runBtn { padding: 10px 22px; background: #2196F3; color: white; border-radius: 4px; border: none; cursor: pointer; margin: 16px 0; }
+    #report { margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #bbb; padding: 8px 10px; text-align: center; }
+    th { background: #f0f0f0; }
+    .status-valid  { color: #28a745; font-weight: bold; }
+    .status-invalid { color: #d9303e; font-weight: bold; }
+    .status-nolineup { color: #d9303e; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div style="max-width: 900px; margin: auto;">
+    <h2>MFL Lineup Validator</h2>
+    <div class="settings-box">
+      <label>League ID: <input type="text" id="leagueInput" value="17011"></label>
+      <label>Year: <input type="text" id="yearInput" value="2025"></label>
+      <label>Server: <input type="text" id="serverInput" value="www48"></label>
+      <label>Week: <select id="weekSelect"></select></label>
+      <label>CORS Proxy URL: <input type="text" id="proxyInput"></label>
+      <button id="runBtn">Run Report</button>
+    </div>
+    <div class="debug-controls">
+      <button id="toggleDebug">Hide Debug</button>
+      <button id="clearDebug">Clear Debug</button>
+    </div>
+    <div id="debugPanel">Debug console ready...</div>
+    <div id="report"></div>
+  </div>
+  <script>
+    // Default CORS proxy URL: use the current origin when served from the
+    // Cloudflare Worker, or fall back to the deployed worker URL when opened
+    // as a local file or from an unknown origin.
+    var DEFAULT_PROXY_URL = 'https://mfl-proxy-worker.kartsetupelite.workers.dev';
+    (function() {
+      var base = window.location.origin;
+      if (!base || base === 'null' || base === 'file://') {
+        base = DEFAULT_PROXY_URL;
+      }
+      document.getElementById('proxyInput').value = base;
+    })();
+
+    // Debug panel toggle/clear
+    document.getElementById('toggleDebug').onclick = function() {
+      var panel = document.getElementById('debugPanel');
+      var btn = document.getElementById('toggleDebug');
+      if (panel.style.display === 'none') {
+        panel.style.display = '';
+        btn.textContent = 'Hide Debug';
+      } else {
+        panel.style.display = 'none';
+        btn.textContent = 'Show Debug';
+      }
+    };
+    document.getElementById('clearDebug').onclick = function() {
+      document.getElementById('debugPanel').innerHTML = '';
+    };
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function dbg(msg, data, type) {
+      var panel = document.getElementById('debugPanel');
+      var color = '#0f0';
+      if (type === 'error') color = '#ff6b6b';
+      if (type === 'info')  color = '#74c0fc';
+      if (type === 'warn')  color = '#ffd43b';
+      var ts = new Date().toLocaleTimeString();
+      var text = '[' + ts + '] ' + escHtml(String(msg));
+      if (data !== undefined) {
+        try { text += ' ' + escHtml(JSON.stringify(data, null, 2)); } catch(e) { text += ' [unserializable]'; }
+      }
+      panel.innerHTML += '<div style="color:' + color + '">' + text + '</div>';
+      panel.scrollTop = panel.scrollHeight;
+      if (data !== undefined) console.log(msg, data); else console.log(msg);
+    }
+
+    // Normalise MFL API values that may be array, object, or missing
+    function toArray(val) {
+      if (!val) return [];
+      return Array.isArray(val) ? val : [val];
+    }
+
+    function getProxyBase() {
+      var raw = document.getElementById('proxyInput').value.trim();
+      return raw.endsWith('/') ? raw : raw + '/';
+    }
+
+    async function proxyFetch(url) {
+      var proxyBase = getProxyBase();
+      var proxied = proxyBase + '?url=' + encodeURIComponent(url);
+      dbg('Fetching: ' + url, undefined, 'info');
+      var resp = await fetch(proxied);
+      if (!resp.ok) {
+        var preview = (await resp.text()).substring(0, 200);
+        throw new Error('HTTP ' + resp.status + ' from proxy: ' + preview);
+      }
+      return resp.json();
+    }
+
+    function getMFLApiUrl(server, year, params) {
+      return 'https://' + server + '.myfantasyleague.com/' + year + '/export?' + params + '&JSON=1';
+    }
+
+    document.getElementById('runBtn').onclick = async function() {
+      var league = document.getElementById('leagueInput').value.trim();
+      var year   = document.getElementById('yearInput').value.trim();
+      var server = document.getElementById('serverInput').value.trim();
+      var week   = document.getElementById('weekSelect').value || '1';
+      var reportDiv = document.getElementById('report');
+      reportDiv.innerHTML = '';
+      dbg('Starting validation for league ' + league + ' week ' + week, undefined, 'info');
+
+      try {
+        // ── 1. Fetch league data ──────────────────────────────────────────────
+        var leagueUrl = getMFLApiUrl(server, year, 'TYPE=league&L=' + league);
+        var leagueData = await proxyFetch(leagueUrl);
+        if (!leagueData || !leagueData.league) {
+          throw new Error('Invalid league API response – missing leagueData.league');
+        }
+        dbg('League loaded: ' + (leagueData.league.name || '(unnamed)'), undefined, 'info');
+
+        // Build team name map: franchise id -> name
+        var teamMap = {};
+        toArray((leagueData.league.franchises || {}).franchise).forEach(function(f) {
+          teamMap[f.id] = f.name || f.id;
+        });
+
+        // Determine minimum starters (typical MFL leagues require 9 starters;
+        // overridden by the league's own starters/lineup_requirements if present)
+        var minStarters = 9;
+        var req = leagueData.league.starters || leagueData.league.lineup_requirements;
+        if (req) {
+          var cnt = Number(req.count || req.total || 0);
+          if (cnt > 0) minStarters = cnt;
+        }
+        dbg('Minimum starters required: ' + minStarters, undefined, 'info');
+
+        // ── 2. Fetch liveScoring data ─────────────────────────────────────────
+        var liveScoringUrl = getMFLApiUrl(server, year, 'TYPE=liveScoring&L=' + league + '&W=' + week + '&DETAILS=1');
+        var liveScoringData = await proxyFetch(liveScoringUrl);
+        dbg('Raw liveScoring API response:', liveScoringData);
+
+        if (!liveScoringData || !liveScoringData.liveScoring) {
+          throw new Error('liveScoring API response is missing or malformed');
+        }
+
+        // ── 3. Extract starter counts per franchise ───────────────────────────
+        // liveScoring.matchup can be array or single object
+        var matchups = toArray(liveScoringData.liveScoring.matchup);
+        if (matchups.length === 0) {
+          dbg('No matchups found in liveScoring response for week ' + week, undefined, 'warn');
+        }
+
+        // franchiseStarters: { franchiseId: starterCount }
+        var franchiseStarters = {};
+
+        matchups.forEach(function(matchup) {
+          // franchise can be array or single object
+          var franchises = toArray(matchup.franchise);
+          franchises.forEach(function(franchise) {
+            var fid = franchise.id;
+            if (!fid) {
+              dbg('Franchise entry missing id, skipping', franchise, 'warn');
+              return;
+            }
+            var count = 0;
+            if (franchise.players) {
+              toArray(franchise.players.player).forEach(function(player) {
+                if (player.status === 'starter') count++;
+              });
+            }
+            franchiseStarters[fid] = count;
+          });
+        });
+
+        dbg('Computed franchise starter counts:', franchiseStarters);
+
+        // ── 4. Build results table ────────────────────────────────────────────
+        var teamsList = Object.keys(franchiseStarters);
+        console.log('Teams List:', teamsList);
+        teamsList.forEach(function(fid) {
+          console.log('Processing Team:', fid, franchiseStarters[fid]);
+        });
+
+        if (teamsList.length === 0) {
+          reportDiv.innerHTML = '<p><strong>No franchise data found for week ' + escHtml(week) + '.</strong> Lineups may not yet be submitted.</p>';
+          dbg('No franchise data to display.', undefined, 'warn');
+          return;
+        }
+
+        var html = '<table>';
+        html += '<tr><th>Team</th><th>Franchise ID</th><th>Starters</th><th>Status</th></tr>';
+
+        teamsList.sort().forEach(function(fid) {
+          var count = franchiseStarters[fid];
+          var name  = teamMap[fid] || fid;
+          var statusClass, statusText;
+          if (count === 0) {
+            statusClass = 'status-nolineup';
+            statusText  = 'No Lineup';
+          } else if (count >= minStarters) {
+            statusClass = 'status-valid';
+            statusText  = 'Valid';
+          } else {
+            statusClass = 'status-invalid';
+            statusText  = 'Invalid';
+          }
+          html += '<tr>'
+            + '<td>' + escHtml(name) + '</td>'
+            + '<td>' + escHtml(fid) + '</td>'
+            + '<td>' + escHtml(String(count)) + '</td>'
+            + '<td class="' + statusClass + '">' + statusText + '</td>'
+            + '</tr>';
+        });
+
+        html += '</table>';
+        reportDiv.innerHTML = html;
+        dbg('Report rendered for ' + teamsList.length + ' franchises.', undefined, 'info');
+
+      } catch (err) {
+        dbg('Error: ' + err.message, undefined, 'error');
+        console.error(err);
+        reportDiv.innerHTML = '<p style="color:#d9303e"><strong>Failed to load data:</strong> ' + escHtml(err.message) + '</p>';
+      }
+    };
+
+    // Populate week selector (weeks 1-17)
+    var weekSel = document.getElementById('weekSelect');
+    for (var i = 1; i <= 17; i++) {
+      var opt = document.createElement('option');
+      opt.value = i;
+      opt.text = 'Week ' + i;
+      weekSel.appendChild(opt);
+    }
+  </script>
+</body>
+</html>
