@@ -164,6 +164,49 @@
       }
     });
 
+    // ── Player database (module-level, fetched on validator load) ────────────
+    var playerNameMap = {};
+    var playerPosMap  = {};
+    var _loadedPlayerKey = null; // "server|year|league" key for cache invalidation
+
+    async function loadPlayers(server, year, league) {
+      var key = JSON.stringify([server, year, league]);
+      if (_loadedPlayerKey === key) {
+        dbg('Player data already loaded for current settings, using cached.', undefined, 'info');
+        return;
+      }
+      playerNameMap = {};
+      playerPosMap  = {};
+      _loadedPlayerKey = null;
+      try {
+        var playersUrl = getMFLApiUrl(server, year, 'TYPE=players&L=' + league + '&DETAILS=1');
+        var playersData = await proxyFetch(playersUrl);
+        dbg('Raw players API response (first 3):', toArray(playersData && playersData.players && playersData.players.player).slice(0, 3));
+        toArray(playersData && playersData.players && playersData.players.player).forEach(function(p) {
+          if (p && p.id) {
+            playerNameMap[p.id] = p.name || '';
+            playerPosMap[p.id]  = p.position || '';
+          }
+        });
+        _loadedPlayerKey = key;
+        dbg('Player name map loaded: ' + Object.keys(playerNameMap).length + ' players', undefined, 'info');
+      } catch (playerErr) {
+        dbg('Could not load player names (non-fatal): ' + playerErr.message, undefined, 'warn');
+      }
+    }
+
+    // Fetch players immediately on validator load using the current form values
+    (async function() {
+      var server = document.getElementById('serverInput').value.trim();
+      var year   = document.getElementById('yearInput').value.trim();
+      var league = document.getElementById('leagueInput').value.trim();
+      if (server && year && league) {
+        await loadPlayers(server, year, league);
+      }
+    })().catch(function(err) {
+      dbg('Error during initial player load: ' + err.message, undefined, 'error');
+    });
+
     document.getElementById('runBtn').onclick = async function() {
       var league = document.getElementById('leagueInput').value.trim();
       var server = document.getElementById('serverInput').value.trim();
@@ -198,23 +241,8 @@
         }
         dbg('Minimum starters required: ' + minStarters, undefined, 'info');
 
-        // ── 1b. Optionally fetch player name map ──────────────────────────────
-        var playerNameMap = {};
-        var playerPosMap  = {};
-        try {
-          var playersUrl = getMFLApiUrl(server, year, 'TYPE=players&L=' + league + '&DETAILS=1');
-          var playersData = await proxyFetch(playersUrl);
-          dbg('Raw players API response (first 3):', toArray(playersData && playersData.players && playersData.players.player).slice(0, 3));
-          toArray(playersData && playersData.players && playersData.players.player).forEach(function(p) {
-            if (p && p.id) {
-              playerNameMap[p.id] = p.name || '';
-              playerPosMap[p.id]  = p.position || '';
-            }
-          });
-          dbg('Player name map loaded: ' + Object.keys(playerNameMap).length + ' players', undefined, 'info');
-        } catch (playerErr) {
-          dbg('Could not load player names (non-fatal): ' + playerErr.message, undefined, 'warn');
-        }
+        // ── 1b. Load player name map (re-fetch only if settings changed) ──────
+        await loadPlayers(server, year, league);
 
         // ── 2. Fetch liveScoring data ─────────────────────────────────────────
         var liveScoringUrl = getMFLApiUrl(server, year, 'TYPE=liveScoring&L=' + league + '&W=' + week + '&DETAILS=1');
