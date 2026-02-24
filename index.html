@@ -202,7 +202,7 @@
         var playerNameMap = {};
         var playerPosMap  = {};
         try {
-          var playersUrl = getMFLApiUrl(server, year, 'TYPE=players&DETAILS=1');
+          var playersUrl = getMFLApiUrl(server, year, 'TYPE=players&L=' + league + '&DETAILS=1');
           var playersData = await proxyFetch(playersUrl);
           dbg('Raw players API response (first 3):', toArray(playersData && playersData.players && playersData.players.player).slice(0, 3));
           toArray(playersData && playersData.players && playersData.players.player).forEach(function(p) {
@@ -251,6 +251,9 @@
             if (franchise.players) {
               toArray(franchise.players.player).forEach(function(player) {
                 if (player.status === 'starter') count++;
+                if (player.id && !playerNameMap[player.id]) {
+                  dbg('Player ID ' + player.id + ' not found in player mapping', undefined, 'warn');
+                }
                 players.push({
                   id:       player.id || '',
                   name:     playerNameMap[player.id] || '',
