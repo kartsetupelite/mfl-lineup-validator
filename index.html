@@ -3,14 +3,18 @@
 <head>
   <title>MFL Lineup Validator</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f9f9f9; padding: 20px; }
+    body { font-family: Arial, sans-serif; background: #f8f9fa; margin: 20px; }
     #debugPanel { background: #222; color: #0f0; padding: 15px; border-radius: 5px; margin: 24px 0; font-family: monospace; font-size: 12px; }
     .settings-box { background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 5px; max-width: 600px; margin: 20px auto; }
     label { display: block; margin-top: 12px; font-weight: bold;}
     input, select { padding: 7px; margin-top: 4px; border-radius: 4px; border: 1px solid #ccc; }
     button { padding: 10px 22px; background: #2196F3; color: white; border-radius: 4px; border: none; cursor: pointer; margin: 16px 0;}
-    #grid { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 24px; }
-    .tile { background: #fff; border-radius: 10px; padding: 12px; border: 1px solid #ddd; min-width: 175px; text-align: center;}
+    #report { margin-top: 40px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #bbb; padding: 8px 10px; text-align: center; }
+    th { background: #f0f0f0; }
+    .valid { color: #28a745; font-weight: bold; }
+    .invalid { color: #d9303e; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -24,60 +28,70 @@
       <button id="runBtn">Run Report</button>
     </div>
     <div id="debugPanel">Debug console ready...</div>
-    <div id="grid"></div>
+    <div id="report"></div>
   </div>
   <script>
-    // Use only the NEW worker proxy
     const proxyEndpoint = 'https://mfl-proxy-worker.kartsetupelite.workers.dev/';
     function getMFLApiUrl(server, year, params) {
       const apiUrl = `https://${server}.myfantasyleague.com/${year}/export?${params}&JSON=1`;
       return proxyEndpoint + "?url=" + encodeURIComponent(apiUrl);
     }
-
     function logDebug(msg, type) {
       const panel = document.getElementById("debugPanel");
-      let color = "#0f0";
-      if (type === "error") color = "#ff6b6b";
+      let color = "#0f0"; if (type === "error") color = "#ff6b6b";
       if (type === "info") color = "#74c0fc";
       panel.innerHTML += `<div style="color:${color}">${msg}</div>`;
     }
-
     document.getElementById("runBtn").onclick = async function(){
       const league = document.getElementById("leagueInput").value;
       const year = document.getElementById("yearInput").value;
       const server = document.getElementById("serverInput").value;
       const week = document.getElementById("weekSelect").value || "1";
       logDebug(`[${new Date().toLocaleTimeString()}] Loading league ${league}...`, "info");
+      const reportDiv = document.getElementById("report");
+      reportDiv.innerHTML = "";
       try {
-        // Get league info (example)
-        const url = getMFLApiUrl(server, year, `TYPE=league&L=${league}`);
-        const leagueData = await fetch(url).then(r=>r.json());
+        // Fetch league info and teams
+        const leagueUrl = getMFLApiUrl(server, year, `TYPE=league&L=${league}`);
+        const leagueData = await fetch(leagueUrl).then(r=>r.json());
         logDebug(`[${new Date().toLocaleTimeString()}] Loaded league: ${leagueData.league.name}`, "info");
+        const teamMap = {};
+        (leagueData.league.teams.team || []).forEach(team => { teamMap[team.id] = team.franchise_name || team.name || team.id; });
 
-        // Get weekly lineups (example)
+        // Fetch lineups
         const lineupUrl = getMFLApiUrl(server, year, `TYPE=lineups&L=${league}&W=${week}`);
         const lineupData = await fetch(lineupUrl).then(r=>r.json());
         logDebug(`[${new Date().toLocaleTimeString()}] Loaded lineups for week ${week}`, "info");
+        const teams = lineupData.lineups.team || [];
+        // Fetch starting lineup requirements
+        let req = (leagueData.league.starters || leagueData.league.lineup_requirements);
+        let minStarters = 7; // fallback
+        if (req && req.count) minStarters = Number(req.count);
 
-        // Render some example team tiles
-        const grid = document.getElementById("grid");
-        grid.innerHTML = "";
-        (lineupData.lineups?.team ?? []).forEach(team => {
-          const div = document.createElement("div");
-          div.className = "tile";
-          div.innerHTML = `<b>${team.name || team.id}</b><br>Lineup count: ${team.starters?.starter?.length ?? 0}`;
-          grid.appendChild(div);
-        });
+        // Build report table
+        let html = `<table><tr><th>Team</th><th>Starter count</th><th>Status</th></tr>`;
+        for (const t of teams) {
+          const starters = (Array.isArray(t.starters?.starter) ? t.starters.starter : []);
+          const count = starters.length;
+          let valid = count >= minStarters;
+          html += `<tr>
+            <td>${teamMap[t.id] || t.id}</td>
+            <td>${count}</td>
+            <td class="${valid ? 'valid' : 'invalid'}">${valid ? 'Valid' : 'Invalid'}</td>
+          </tr>`;
+        }
+        html += `</table>`;
+        reportDiv.innerHTML = html;
 
       } catch (err) {
         logDebug(`[${new Date().toLocaleTimeString()}] Error: ${err}`, "error");
+        reportDiv.innerHTML = "<b>Failed to load data</b>";
       }
     };
-
-    // (Optional) Load week options
+    // Load weeks in dropdown
     let weekSel = document.getElementById("weekSelect");
-    for (let i=1; i<=17; i++) {
-      let o = document.createElement("option"); o.value=i; o.text=`Week ${i}`; weekSel.appendChild(o);
+    for (let i=1;i<=17;i++) {
+      let o=document.createElement("option"); o.value=i; o.text=`Week ${i}`; weekSel.appendChild(o);
     }
   </script>
 </body>
