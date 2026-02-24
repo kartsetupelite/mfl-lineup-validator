@@ -40,7 +40,7 @@
       const panel = document.getElementById("debugPanel");
       let color = "#0f0"; if (type === "error") color = "#ff6b6b";
       if (type === "info") color = "#74c0fc";
-      panel.innerHTML += `<div style="color:${color}">${msg}</div>`;
+      panel.innerHTML += `<div style=\"color:${color}\">${msg}</div>`;
     }
     document.getElementById("runBtn").onclick = async function(){
       const league = document.getElementById("leagueInput").value;
@@ -55,7 +55,6 @@
         const leagueUrl = getMFLApiUrl(server, year, `TYPE=league&L=${league}`);
         const leagueData = await fetch(leagueUrl).then(r=>r.json());
         logDebug(`[${new Date().toLocaleTimeString()}] Loaded league: ${leagueData.league.name}`, "info");
-        // Robust teams extraction
         const teamMap = {};
         let teamsRaw = leagueData.league.teams;
         let teamsArr = [];
@@ -65,23 +64,29 @@
           teamsArr = [teamsRaw.team];
         }
         teamsArr.forEach(team => { teamMap[team.id] = team.franchise_name || team.name || team.id; });
-        // Fetch lineups
+        // Fetch and render lineups
         const lineupUrl = getMFLApiUrl(server, year, `TYPE=lineups&L=${league}&W=${week}`);
         const lineupData = await fetch(lineupUrl).then(r=>r.json());
-        logDebug(`[${new Date().toLocaleTimeString()}] Loaded lineups for week ${week}`, "info");
-        const teams = lineupData.lineups.team || [];
+        logDebug(`[${new Date().toLocaleTimeString()}] Loaded lineups for week ${week}` , "info");
+        // Robustly extract team lineups (array, object, missing)
+        let teamsList = [];
+        if (lineupData.lineups && Array.isArray(lineupData.lineups.team)) {
+          teamsList = lineupData.lineups.team;
+        } else if (lineupData.lineups && lineupData.lineups.team) {
+          teamsList = [lineupData.lineups.team];
+        }
         let req = (leagueData.league.starters || leagueData.league.lineup_requirements);
         let minStarters = 7; // fallback
         if (req && req.count) minStarters = Number(req.count);
         let html = `<table><tr><th>Team</th><th>Starter count</th><th>Status</th></tr>`;
-        for (const t of teams) {
+        for (const t of teamsList) {
           const starters = (Array.isArray(t.starters?.starter) ? t.starters.starter : []);
           const count = starters.length;
           let valid = count >= minStarters;
           html += `<tr>
             <td>${teamMap[t.id] || t.id}</td>
             <td>${count}</td>
-            <td class="${valid ? 'valid' : 'invalid'}">${valid ? 'Valid' : 'Invalid'}</td>
+            <td class=\"${valid ? 'valid' : 'invalid'}\">${valid ? 'Valid' : 'Invalid'}</td>
           </tr>`;
         }
         html += `</table>`;
