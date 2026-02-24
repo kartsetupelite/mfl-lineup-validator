@@ -1,0 +1,5 @@
+[[worker]]
+name = "mfl-proxy"
+main = "src/index.js"
+bucket = "your-bucket-name"
+compatibility_date = "2026-02-24"
