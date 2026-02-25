@@ -311,6 +311,7 @@
           return;
         }
 
+        var POS_ORDER = ['QB','RB','WR','TE','PK','DT','DE','LB','CB','S'];
         var html = '<table>';
         html += '<tr><th>Team</th><th>Franchise ID</th><th>Starters</th><th>Status (click to expand)</th></tr>';
 
@@ -339,7 +340,14 @@
 
           // Detail row (hidden by default)
           var players = franchisePlayers[fid] || [];
-          var starterPlayers = players.filter(function(p) { return p.status === 'starter'; });
+          var starterPlayers = players.filter(function(p) { return p.status === 'starter'; })
+            .sort(function(a, b) {
+              var ai = POS_ORDER.indexOf(a.position);
+              var bi = POS_ORDER.indexOf(b.position);
+              if (ai === -1) ai = POS_ORDER.length;
+              if (bi === -1) bi = POS_ORDER.length;
+              return ai - bi;
+            });
           var detailContent;
           if (players.length === 0) {
             detailContent = '<div class="no-lineup-msg">No lineup submitted for this team.</div>';
