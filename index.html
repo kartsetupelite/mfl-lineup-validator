@@ -70,17 +70,7 @@
     <div id="report"></div>
   </div>
   <script>
-    // Default CORS proxy URL: use the current origin when served from the
-    // Cloudflare Worker, or fall back to the deployed worker URL when opened
-    // as a local file or from an unknown origin.
-    var DEFAULT_PROXY_URL = 'https://mfl-proxy-worker.kartsetupelite.workers.dev';
-    (function() {
-      var base = window.location.origin;
-      if (!base || base === 'null' || base === 'file://') {
-        base = DEFAULT_PROXY_URL;
-      }
-      document.getElementById('proxyInput').value = base;
-    })();
+    document.getElementById('proxyInput').value = 'https://mfl-proxy-worker.kartsetupelite.workers.dev/';
 
     // Debug panel toggle/clear
     document.getElementById('toggleDebug').onclick = function() {
