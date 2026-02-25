@@ -70,17 +70,7 @@
     <div id="report"></div>
   </div>
   <script>
-    // Default CORS proxy URL: use the current origin when served from the
-    // Cloudflare Worker, or fall back to the deployed worker URL when opened
-    // as a local file or from an unknown origin.
-    var DEFAULT_PROXY_URL = 'https://mfl-proxy-worker.kartsetupelite.workers.dev';
-    (function() {
-      var base = window.location.origin;
-      if (!base || base === 'null' || base === 'file://') {
-        base = DEFAULT_PROXY_URL;
-      }
-      document.getElementById('proxyInput').value = base;
-    })();
+    document.getElementById('proxyInput').value = 'https://mfl-proxy-worker.kartsetupelite.workers.dev/';
 
     // Debug panel toggle/clear
     document.getElementById('toggleDebug').onclick = function() {
@@ -311,6 +301,7 @@
           return;
         }
 
+        var POS_ORDER = ['QB','RB','WR','TE','PK','DT','DE','LB','CB','S'];
         var html = '<table>';
         html += '<tr><th>Team</th><th>Franchise ID</th><th>Starters</th><th>Status (click to expand)</th></tr>';
 
@@ -339,7 +330,14 @@
 
           // Detail row (hidden by default)
           var players = franchisePlayers[fid] || [];
-          var starterPlayers = players.filter(function(p) { return p.status === 'starter'; });
+          var starterPlayers = players.filter(function(p) { return p.status === 'starter'; })
+            .sort(function(a, b) {
+              var ai = POS_ORDER.indexOf(a.position);
+              var bi = POS_ORDER.indexOf(b.position);
+              if (ai === -1) ai = POS_ORDER.length;
+              if (bi === -1) bi = POS_ORDER.length;
+              return ai - bi;
+            });
           var detailContent;
           if (players.length === 0) {
             detailContent = '<div class="no-lineup-msg">No lineup submitted for this team.</div>';
