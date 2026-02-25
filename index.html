@@ -51,6 +51,9 @@
     .detail-inner tr:nth-child(even) td { background: #f5f9ff; }
     .player-starter { color: #28a745; }
     .player-nonstarter { color: #888; }
+    .detail-inner .violationRow td { background: #fff5f5; border-top: 2px solid #d9303e; border-bottom: 2px solid #d9303e; }
+    .detail-inner .violationRow td:first-child { border-left: 2px solid #d9303e; }
+    .detail-inner .violationRow td:last-child { border-right: 2px solid #d9303e; }
     .no-lineup-msg { color: #888; font-style: italic; padding: 6px 0; }
     .team-cell { text-align: left; white-space: nowrap; }
     .team-logo { width: 36px; height: 36px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 3px; }
@@ -293,6 +296,35 @@
       return { status: 'invalid', reasons: distReasons, messages: [] };
     }
 
+    // Returns a Set of player IDs that are involved in rule violations.
+    // Only highlights "too many" violations (excess players), not "not enough" shortages.
+    function getViolatingPlayerIds(starterPlayers) {
+      var violating = new Set();
+      var offensePlayers = [];
+      var idpPlayers = [];
+      var posByGroup = {};
+      starterPlayers.forEach(function(p) {
+        var pos = p.position || '';
+        if (!posByGroup[pos]) posByGroup[pos] = [];
+        posByGroup[pos].push(p.id);
+        if (OFFENSE_POSITIONS.indexOf(pos) !== -1) offensePlayers.push(p.id);
+        if (IDP_POSITIONS.indexOf(pos) !== -1) idpPlayers.push(p.id);
+      });
+      if (offensePlayers.length > OFFENSE_MAX) {
+        offensePlayers.forEach(function(id) { violating.add(id); });
+      }
+      if (idpPlayers.length > IDP_MAX) {
+        idpPlayers.forEach(function(id) { violating.add(id); });
+      }
+      Object.keys(POS_MAX).forEach(function(pos) {
+        var ids = posByGroup[pos] || [];
+        if (ids.length > POS_MAX[pos]) {
+          ids.forEach(function(id) { violating.add(id); });
+        }
+      });
+      return violating;
+    }
+
     document.getElementById('runBtn').onclick = async function() {
       var league = document.getElementById('leagueInput').value.trim();
       var server = document.getElementById('serverInput').value.trim();
@@ -462,6 +494,7 @@
           } else if (starterPlayers.length === 0) {
             detailContent = '<div class="no-lineup-msg">No starters found in lineup data.</div>';
           } else {
+            var violatingIds = validation.status === 'invalid' ? getViolatingPlayerIds(starterPlayers) : new Set();
             var tbl = '<table>'
               + '<tr><th>Player ID</th><th>Name / Position</th><th>Score</th><th>Status</th></tr>';
             starterPlayers.forEach(function(p) {
@@ -469,7 +502,8 @@
                 ? escHtml(p.name) + (p.position ? ' <em>(' + escHtml(p.position) + ')</em>' : '')
                 : '<em style="color:#666">ID ' + escHtml(p.id) + '</em>';
               var statusCls = p.status === 'starter' ? 'player-starter' : 'player-nonstarter';
-              tbl += '<tr>'
+              var rowClassAttr = (p.id && violatingIds.has(p.id)) ? ' class="violationRow"' : '';
+              tbl += '<tr' + rowClassAttr + '>'
                 + '<td>' + escHtml(p.id || '—') + '</td>'
                 + '<td>' + namePos + '</td>'
                 + '<td>' + escHtml(String(p.score)) + '</td>'
