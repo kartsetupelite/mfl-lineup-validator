@@ -18,6 +18,9 @@
     .status-valid  { color: #28a745; font-weight: bold; }
     .status-invalid { color: #d9303e; font-weight: bold; }
     .status-nolineup { color: #d9303e; font-weight: bold; }
+    .status-partial { color: #e67e00; font-weight: bold; }
+    .status-reasons { font-size: 12px; font-weight: normal; color: #d9303e; margin-top: 3px; }
+    .status-messages { font-size: 12px; font-weight: normal; color: #e67e00; margin-top: 3px; }
     /* Clickable status badge */
     .status-badge {
       cursor: pointer;
@@ -49,6 +52,8 @@
     .player-starter { color: #28a745; }
     .player-nonstarter { color: #888; }
     .no-lineup-msg { color: #888; font-style: italic; padding: 6px 0; }
+    .team-cell { text-align: left; white-space: nowrap; }
+    .team-logo { width: 36px; height: 36px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -197,6 +202,97 @@
       dbg('Error during initial player load: ' + err.message, undefined, 'error');
     });
 
+    // ── Lineup validation constants ──────────────────────────────────────────
+    var POS_MIN = { QB: 1, RB: 2, WR: 3, TE: 1, PK: 1, DT: 1, DE: 2, LB: 2, CB: 3, S: 2 };
+    var POS_MAX = { QB: 1, RB: 3, WR: 4, TE: 2, PK: 1, DT: 3, DE: 5, LB: 5, CB: 4, S: 3 };
+    var OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'PK'];
+    var IDP_POSITIONS     = ['DT', 'DE', 'LB', 'CB', 'S'];
+    var MAX_STARTERS      = 22;
+    var OFFENSE_MAX       = 9;
+    var IDP_MAX           = 13;
+
+    // Returns { status, reasons, messages }
+    // status: 'no-lineup' | 'invalid' | 'partial' | 'valid'
+    // reasons: array of strings explaining why invalid
+    // messages: array of informational strings for partial
+    function validateLineup(starterPlayers) {
+      var total = starterPlayers.length;
+      if (total === 0) {
+        return { status: 'no-lineup', reasons: [], messages: [] };
+      }
+
+      var posCounts = {};
+      var offenseCount = 0;
+      var idpCount = 0;
+      starterPlayers.forEach(function(p) {
+        var pos = p.position || '';
+        posCounts[pos] = (posCounts[pos] || 0) + 1;
+        if (OFFENSE_POSITIONS.indexOf(pos) !== -1) offenseCount++;
+        if (IDP_POSITIONS.indexOf(pos) !== -1) idpCount++;
+      });
+
+      // Check hard-rule violations
+      var reasons = [];
+      if (total > MAX_STARTERS) {
+        reasons.push('Too many total starters: ' + total + ' (max ' + MAX_STARTERS + ')');
+      }
+      if (offenseCount > OFFENSE_MAX) {
+        reasons.push('Too many offense starters: ' + offenseCount + ' (max ' + OFFENSE_MAX + ')');
+      }
+      if (idpCount > IDP_MAX) {
+        reasons.push('Too many IDP starters: ' + idpCount + ' (max ' + IDP_MAX + ')');
+      }
+      Object.keys(POS_MAX).forEach(function(pos) {
+        var cnt = posCounts[pos] || 0;
+        if (cnt > POS_MAX[pos]) {
+          reasons.push('Too many ' + pos + ' starters: ' + cnt + ' (max ' + POS_MAX[pos] + ')');
+        }
+      });
+      if (reasons.length > 0) {
+        return { status: 'invalid', reasons: reasons, messages: [] };
+      }
+
+      // Check for full valid lineup
+      if (total === MAX_STARTERS && offenseCount === OFFENSE_MAX && idpCount === IDP_MAX) {
+        var allMinsMet = Object.keys(POS_MIN).every(function(pos) {
+          return (posCounts[pos] || 0) >= POS_MIN[pos];
+        });
+        if (allMinsMet) {
+          return { status: 'valid', reasons: [], messages: [] };
+        }
+      }
+
+      // Partial: 1–21 starters with no hard-rule violations
+      if (total < MAX_STARTERS) {
+        var messages = [];
+        var needed = MAX_STARTERS - total;
+        messages.push('Need ' + needed + ' more starter' + (needed !== 1 ? 's' : '') + ' to reach ' + MAX_STARTERS);
+        Object.keys(POS_MIN).forEach(function(pos) {
+          var shortage = POS_MIN[pos] - (posCounts[pos] || 0);
+          if (shortage > 0) {
+            messages.push('Need at least ' + shortage + ' more ' + pos + ' (min ' + POS_MIN[pos] + ')');
+          }
+        });
+        return { status: 'partial', reasons: [], messages: messages };
+      }
+
+      // Exactly 22 starters but fails distribution or minimums → invalid
+      var distReasons = [];
+      if (offenseCount !== OFFENSE_MAX) {
+        distReasons.push('Offense starters: ' + offenseCount + ' (need exactly ' + OFFENSE_MAX + ')');
+      }
+      if (idpCount !== IDP_MAX) {
+        distReasons.push('IDP starters: ' + idpCount + ' (need exactly ' + IDP_MAX + ')');
+      }
+      Object.keys(POS_MIN).forEach(function(pos) {
+        var shortage = POS_MIN[pos] - (posCounts[pos] || 0);
+        if (shortage > 0) {
+          distReasons.push('Not enough ' + pos + ' starters: ' + (posCounts[pos] || 0) + ' (min ' + POS_MIN[pos] + ')');
+        }
+      });
+      return { status: 'invalid', reasons: distReasons, messages: [] };
+    }
+
     document.getElementById('runBtn').onclick = async function() {
       var league = document.getElementById('leagueInput').value.trim();
       var server = document.getElementById('serverInput').value.trim();
@@ -215,15 +311,16 @@
         }
         dbg('League loaded: ' + (leagueData.league.name || '(unnamed)'), undefined, 'info');
 
-        // Build team name map: franchise id -> name
+        // Build team name and logo maps: franchise id -> name / logo URL
         var teamMap = {};
+        var teamLogoMap = {};
         toArray((leagueData.league.franchises || {}).franchise).forEach(function(f) {
           teamMap[f.id] = f.name || f.id;
+          teamLogoMap[f.id] = f.logo || '';
         });
 
-        // Determine minimum starters (typical MFL leagues require 9 starters;
-        // overridden by the league's own starters/lineup_requirements if present)
-        var minStarters = 9;
+        // Determine minimum starters – kept for debug logging only
+        var minStarters = MAX_STARTERS;
         var req = leagueData.league.starters || leagueData.league.lineup_requirements;
         if (req) {
           var cnt = Number(req.count || req.total || 0);
@@ -303,32 +400,14 @@
 
         var POS_ORDER = ['QB','RB','WR','TE','PK','DT','DE','LB','CB','S'];
         var html = '<table>';
-        html += '<tr><th>Team</th><th>Franchise ID</th><th>Starters</th><th>Status (click to expand)</th></tr>';
+        html += '<tr><th>Team</th><th>Starters</th><th>Status (click to expand)</th></tr>';
 
         teamsList.sort().forEach(function(fid) {
           var count = franchiseStarters[fid];
           var name  = teamMap[fid] || fid;
-          var statusClass, statusText;
-          if (count === 0) {
-            statusClass = 'status-nolineup';
-            statusText  = 'No Lineup';
-          } else if (count >= minStarters) {
-            statusClass = 'status-valid';
-            statusText  = 'Valid';
-          } else {
-            statusClass = 'status-invalid';
-            statusText  = 'Invalid';
-          }
+          var logo  = teamLogoMap[fid] || '';
 
-          // Main team row with clickable status badge
-          html += '<tr>'
-            + '<td>' + escHtml(name) + '</td>'
-            + '<td>' + escHtml(fid) + '</td>'
-            + '<td>' + escHtml(String(count)) + '</td>'
-            + '<td><span class="' + statusClass + ' status-badge" data-fid="' + escHtml(fid) + '" title="Click to show/hide lineup">' + escHtml(statusText) + ' ▾</span></td>'
-            + '</tr>';
-
-          // Detail row (hidden by default)
+          // Build starter player list for validation
           var players = franchisePlayers[fid] || [];
           var starterPlayers = players.filter(function(p) { return p.status === 'starter'; })
             .sort(function(a, b) {
@@ -338,6 +417,45 @@
               if (bi === -1) bi = POS_ORDER.length;
               return ai - bi;
             });
+
+          var validation = validateLineup(starterPlayers);
+          var statusClass, statusText;
+          if (validation.status === 'no-lineup') {
+            statusClass = 'status-nolineup';
+            statusText  = 'No Lineup';
+          } else if (validation.status === 'valid') {
+            statusClass = 'status-valid';
+            statusText  = 'Valid';
+          } else if (validation.status === 'partial') {
+            statusClass = 'status-partial';
+            statusText  = 'Partial';
+          } else {
+            statusClass = 'status-invalid';
+            statusText  = 'Invalid';
+          }
+
+          // Build sub-text for reasons (invalid) or messages (partial)
+          var subHtml = '';
+          if (validation.reasons.length > 0) {
+            subHtml = '<div class="status-reasons">' + validation.reasons.map(escHtml).join('<br>') + '</div>';
+          } else if (validation.messages.length > 0) {
+            subHtml = '<div class="status-messages">' + validation.messages.map(escHtml).join('<br>') + '</div>';
+          }
+
+          // Team cell: logo (if present) + name
+          var logoHtml = logo
+            ? '<img class="team-logo" src="' + escHtml(logo) + '" alt="' + escHtml(name) + ' logo" onerror="this.style.display=\'none\'">'
+            : '';
+          var teamCell = '<td class="team-cell">' + logoHtml + escHtml(name) + '</td>';
+
+          // Main team row with clickable status badge
+          html += '<tr>'
+            + teamCell
+            + '<td>' + escHtml(String(count)) + '</td>'
+            + '<td><span class="' + statusClass + ' status-badge" data-fid="' + escHtml(fid) + '" title="Click to show/hide lineup">' + escHtml(statusText) + ' ▾</span>' + subHtml + '</td>'
+            + '</tr>';
+
+          // Detail row (hidden by default)
           var detailContent;
           if (players.length === 0) {
             detailContent = '<div class="no-lineup-msg">No lineup submitted for this team.</div>';
@@ -363,7 +481,7 @@
           }
 
           html += '<tr id="detail-' + escHtml(fid) + '" class="detail-row">'
-            + '<td colspan="4"><div class="detail-inner">'
+            + '<td colspan="3"><div class="detail-inner">'
             + '<strong>' + escHtml(name) + ' — Starting Lineup</strong>'
             + detailContent
             + '</div></td>'
